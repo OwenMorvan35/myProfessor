@@ -77,6 +77,11 @@ class FolderPage extends HookConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => context.go('/'),
+          tooltip: 'Retour',
+        ),
         title: Text(folderTitle),
         actions: [
           IconButton(

@@ -9,18 +9,17 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-var allowedOrigins = []string{
-	"http://localhost:5173",
-	"http://localhost:8080",
-}
-
 func CORS() gin.HandlerFunc {
 	config := cors.Config{
-		AllowOrigins:     allowedOrigins,
-		AllowOriginFunc:  func(origin string) bool { return true },
-		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Authorization", "Content-Type", "X-Requested-With"},
-		AllowCredentials: true,
+		AllowOrigins: []string{
+			"http://localhost:8080",
+			"http://localhost:5173",
+		},
+		AllowMethods:     []string{"GET", "POST", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: false,
+		MaxAge:           12 * time.Hour,
 	}
 	return cors.New(config)
 }

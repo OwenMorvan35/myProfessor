@@ -86,12 +86,12 @@ class ApiClient {
               : 'audio_${DateTime.now().millisecondsSinceEpoch}',
         );
 
-    final formData = FormData.fromMap({'file': multipartFile});
+    final formData = FormData();
+    formData.files.add(MapEntry('file', multipartFile));
 
     final response = await _dio.post(
       '/folders/$folderId/documents/upload',
       data: formData,
-      options: Options(contentType: 'multipart/form-data'),
     );
 
     final data = _asMap(response.data);

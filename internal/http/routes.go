@@ -1,6 +1,7 @@
 package http
 
 import (
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -165,35 +166,43 @@ func (a *API) handleUploadDocument(c *gin.Context) {
 		return
 	}
 
+	log.Printf("Upload request headers: %#v", c.Request.Header)
+
 	fileHeader, err := c.FormFile("file")
 	if err != nil {
 		respondMessage(c, http.StatusBadRequest, "missing audio file")
 		return
 	}
+	log.Printf("Received upload: folder=%s filename=%s size=%d", folderID, fileHeader.Filename, fileHeader.Size)
 
 	upload, err := fileHeader.Open()
 	if err != nil {
-		respondError(c, http.StatusInternalServerError, err)
+		log.Printf("error opening upload: %v", err)
+		respondMessage(c, http.StatusInternalServerError, "unable to read uploaded file")
 		return
 	}
 	defer upload.Close()
 
 	audioPath, err := a.files.SaveUploadedAudio(upload, fileHeader.Filename)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, err)
+		log.Printf("error saving uploaded audio: %v", err)
+		respondMessage(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	log.Printf("Audio saved to %s", audioPath)
 
 	ctx := c.Request.Context()
 	transcription, err := a.openai.TranscribeAudio(ctx, audioPath)
 	if err != nil {
-		respondError(c, http.StatusBadGateway, err)
+		log.Printf("transcription failed: %v", err)
+		respondMessage(c, http.StatusBadGateway, "transcription failed")
 		return
 	}
 
 	summary, err := a.openai.Summarize(transcription)
 	if err != nil {
-		respondError(c, http.StatusBadGateway, err)
+		log.Printf("summary failed: %v", err)
+		respondMessage(c, http.StatusBadGateway, "summary failed")
 		return
 	}
 
@@ -208,9 +217,11 @@ func (a *API) handleUploadDocument(c *gin.Context) {
 
 	saved, err := a.store.CreateDocument(doc)
 	if err != nil {
-		respondError(c, http.StatusInternalServerError, err)
+		log.Printf("document save failed: %v", err)
+		respondMessage(c, http.StatusInternalServerError, "unable to save document")
 		return
 	}
+	log.Printf("Document %s created for folder %s", saved.ID, folderID)
 
 	c.JSON(http.StatusCreated, gin.H{"document": saved})
 }
