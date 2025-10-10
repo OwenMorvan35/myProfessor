@@ -175,6 +175,10 @@ class DocumentPage extends HookConsumerWidget {
 
             final summaryBullets = _parseSummary(doc.summary);
 
+            final instructionsController = useTextEditingController();
+            final generatedCourse = useState<String?>(null);
+            final isGeneratingCourse = useState(false);
+
             return ListView(
               children: [
                 Text(
@@ -208,6 +212,55 @@ class DocumentPage extends HookConsumerWidget {
                     ),
                   ],
                 ),
+                const SizedBox(height: 24),
+                Text('Consigne (optionnel)', style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: instructionsController,
+                  minLines: 3,
+                  maxLines: 6,
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    hintText: 'Ajoute des instructions complémentaires pour la génération du cours',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                FilledButton.icon(
+                  onPressed: isGeneratingCourse.value
+                      ? null
+                      : () async {
+                          isGeneratingCourse.value = true;
+                          try {
+                            final api = ref.read(apiClientProvider);
+                            final course = await api.generateCourse(doc.id, instructionsController.text.trim());
+                            generatedCourse.value = course;
+                          } catch (error) {
+                            generatedCourse.value = 'Erreur : $error';
+                          } finally {
+                            isGeneratingCourse.value = false;
+                          }
+                        },
+                  icon: isGeneratingCourse.value
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.menu_book_outlined),
+                  label: const Text('Générer un cours'),
+                ),
+                if (generatedCourse.value != null) ...[
+                  const SizedBox(height: 16),
+                  Text('Cours généré', style: Theme.of(context).textTheme.titleLarge),
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surfaceVariant,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.vertical,
+                      child: SelectableText(generatedCourse.value!),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 24),
                 Text('Résumé', style: Theme.of(context).textTheme.titleLarge),
                 const SizedBox(height: 8),

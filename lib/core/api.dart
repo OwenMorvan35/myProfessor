@@ -110,6 +110,26 @@ class ApiClient {
     return data['url']?.toString() ?? '';
   }
 
+  Future<String> generateCourse(String documentId, String instructions) async {
+    try {
+      final response = await _dio.post(
+        '/documents/$documentId/course',
+        data: {'instructions': instructions},
+      );
+      final data = _asMap(response.data);
+      final course = data['course'];
+      if (course is String && course.isNotEmpty) {
+        return course;
+      }
+      throw Exception('Course content missing in response');
+    } on DioException catch (error) {
+      final message = error.response?.data is Map<String, dynamic>
+          ? (error.response?.data['error']?.toString() ?? error.message)
+          : error.message;
+      throw Exception(message);
+    }
+  }
+
   List<Map<String, dynamic>> _asListOfMap(dynamic raw) {
     if (raw is List) {
       return raw.cast<Map<String, dynamic>>();

@@ -20,7 +20,7 @@ import (
 const (
 	transcriptionEndpoint = "https://api.openai.com/v1/audio/transcriptions"
 	summaryEndpoint       = "https://api.openai.com/v1/chat/completions"
-	requestTimeout        = 10 * time.Minute
+	requestTimeout        = 5 * time.Minute
 )
 
 var allowedAudioMIMEs = map[string]struct{}{
@@ -31,7 +31,8 @@ var allowedAudioMIMEs = map[string]struct{}{
 	"audio/wav":   {},
 }
 
-var summarySystemPrompt = "Tu es un assistant pédagogique. Résume ce cours en bullet points clairs. Sépare Définitions, Concepts, Exemples."
+const summarySystemPrompt = "Tu es un assistant pédagogique. Résume ce cours en bullet points clairs. Sépare Définitions, Concepts, Exemples."
+const courseSystemPrompt = "Tu es un enseignant, transforme cette transcription en un cours complet, clair et structuré, avec titres et sous-parties."
 
 type OpenAIService struct {
 	apiKey          string
@@ -47,9 +48,7 @@ func NewOpenAIService(cfg config.Config) *OpenAIService {
 		reqTimeout:      requestTimeout,
 		transcribeModel: cfg.OpenAIModelTranscribe,
 		summaryModel:    cfg.OpenAIModelSummary,
-		httpClient: &http.Client{
-			Timeout: requestTimeout,
-		},
+		httpClient:      &http.Client{Timeout: requestTimeout},
 	}
 }
 
@@ -71,7 +70,6 @@ func (s *OpenAIService) Transcribe(r io.Reader, filename string, mime string) (s
 	if err != nil {
 		return "", fmt.Errorf("create multipart file: %w", err)
 	}
-
 	if _, err := io.Copy(part, r); err != nil {
 		return "", fmt.Errorf("copy audio data: %w", err)
 	}
@@ -113,27 +111,42 @@ func (s *OpenAIService) Transcribe(r io.Reader, filename string, mime string) (s
 }
 
 func (s *OpenAIService) Summarize(transcription string) (string, error) {
+	return s.invokeChatCompletion(summarySystemPrompt, transcription, "")
+}
+
+func (s *OpenAIService) GenerateCourse(transcription, instructions string) (string, error) {
+	return s.invokeChatCompletion(courseSystemPrompt, transcription, instructions)
+}
+
+func (s *OpenAIService) invokeChatCompletion(systemPrompt, transcription, instructions string) (string, error) {
 	if err := s.ensureAPIKey(); err != nil {
 		return "", err
+	}
+
+	contentBuilder := strings.Builder{}
+	contentBuilder.WriteString(transcription)
+	if strings.TrimSpace(instructions) != "" {
+		contentBuilder.WriteString("\n\nInstructions supplémentaires :\n")
+		contentBuilder.WriteString(instructions)
 	}
 
 	payload := map[string]any{
 		"model": s.summaryModel,
 		"messages": []map[string]string{
-			{"role": "system", "content": summarySystemPrompt},
-			{"role": "user", "content": transcription},
+			{"role": "system", "content": systemPrompt},
+			{"role": "user", "content": contentBuilder.String()},
 		},
 		"temperature": 0.2,
 	}
 
 	buf := &bytes.Buffer{}
 	if err := json.NewEncoder(buf).Encode(payload); err != nil {
-		return "", fmt.Errorf("encode summary payload: %w", err)
+		return "", fmt.Errorf("encode payload: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, summaryEndpoint, buf)
 	if err != nil {
-		return "", fmt.Errorf("create summary request: %w", err)
+		return "", fmt.Errorf("create request: %w", err)
 	}
 
 	req.Header.Set("Authorization", "Bearer "+s.apiKey)
@@ -158,14 +171,28 @@ func (s *OpenAIService) Summarize(transcription string) (string, error) {
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return "", fmt.Errorf("decode summary response: %w", err)
+		return "", fmt.Errorf("decode response: %w", err)
 	}
 
 	if len(response.Choices) == 0 {
-		return "", errors.New("no summary returned")
+		return "", errors.New("no choices returned")
 	}
 
 	return strings.TrimSpace(response.Choices[0].Message.Content), nil
+}
+
+func (s *OpenAIService) TranscribeAudio(ctx context.Context, path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("open audio file: %w", err)
+	}
+	defer file.Close()
+
+	return s.Transcribe(file, filepath.Base(path), "")
+}
+
+func (s *OpenAIService) SummarizeText(ctx context.Context, transcription string) (string, error) {
+	return s.Summarize(transcription)
 }
 
 func (s *OpenAIService) do(req *http.Request) (*http.Response, error) {
@@ -206,23 +233,4 @@ func (s *OpenAIService) ensureAPIKey() error {
 		return errors.New("openai api key is not configured")
 	}
 	return nil
-}
-
-// Backwards compatibility helpers ------------------------------------------------
-
-// TranscribeAudio preserves the legacy behaviour by reading the file and
-// delegating to Transcribe.
-func (s *OpenAIService) TranscribeAudio(ctx context.Context, path string) (string, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return "", fmt.Errorf("open audio file: %w", err)
-	}
-	defer file.Close()
-
-	return s.Transcribe(file, filepath.Base(path), "")
-}
-
-// SummarizeText delegates to the new Summarize function for compatibility.
-func (s *OpenAIService) SummarizeText(ctx context.Context, transcription string) (string, error) {
-	return s.Summarize(transcription)
 }

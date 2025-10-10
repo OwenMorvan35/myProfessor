@@ -47,6 +47,7 @@ func registerRoutes(r *gin.Engine, api *API) {
 		apiGroup.DELETE("/documents/:id", api.handleDeleteDocument)
 		apiGroup.POST("/documents/:id/pdf", api.handleGeneratePDF)
 		apiGroup.POST("/documents/:id/share", api.handleShareDocument)
+		apiGroup.POST("/documents/:id/course", api.handleGenerateCourse)
 	}
 
 	r.GET("/pdf/:id", api.handleServePDF)
@@ -271,6 +272,40 @@ func (a *API) handleShareDocument(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"url": url, "expiresAt": expiresAt.UTC()})
+}
+
+func (a *API) handleGenerateCourse(c *gin.Context) {
+	docID := c.Param("id")
+	doc, err := a.store.GetDocument(docID)
+	if err != nil {
+		respondMessage(c, http.StatusNotFound, "document not found")
+		return
+	}
+
+	if strings.TrimSpace(doc.Transcription) == "" {
+		respondMessage(c, http.StatusBadRequest, "document has no transcription")
+		return
+	}
+
+	var payload struct {
+		Instructions string `json:"instructions"`
+	}
+
+	if c.Request.ContentLength > 0 {
+		if err := c.ShouldBindJSON(&payload); err != nil {
+			respondMessage(c, http.StatusBadRequest, "invalid payload")
+			return
+		}
+	}
+
+	course, err := a.openai.GenerateCourse(doc.Transcription, payload.Instructions)
+	if err != nil {
+		log.Printf("course generation failed: %v", err)
+		respondMessage(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"course": course})
 }
 
 func (a *API) handleServePDF(c *gin.Context) {
