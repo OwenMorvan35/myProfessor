@@ -76,7 +76,8 @@ class ApiClient {
     File? file,
     MultipartFile? multipart,
   }) async {
-    assert((file != null) ^ (multipart != null), 'Provide either a file or a multipart payload');
+    assert((file != null) ^ (multipart != null),
+        'Provide either a file or a multipart payload');
 
     final multipartFile = multipart ??
         await MultipartFile.fromFile(
@@ -96,6 +97,19 @@ class ApiClient {
 
     final data = _asMap(response.data);
     return _asMap(data['document'] ?? data);
+  }
+
+  Future<Map<String, dynamic>> transcribeDocument(String documentId) async {
+    try {
+      final response = await _dio.post('/documents/$documentId/transcribe');
+      final data = _asMap(response.data);
+      return _asMap(data['document'] ?? data);
+    } on DioException catch (error) {
+      final message = error.response?.data is Map<String, dynamic>
+          ? (error.response?.data['error']?.toString() ?? error.message)
+          : error.message;
+      throw Exception(message);
+    }
   }
 
   Future<String> generatePdf(String documentId) async {
@@ -122,6 +136,27 @@ class ApiClient {
         return course;
       }
       throw Exception('Course content missing in response');
+    } on DioException catch (error) {
+      final message = error.response?.data is Map<String, dynamic>
+          ? (error.response?.data['error']?.toString() ?? error.message)
+          : error.message;
+      throw Exception(message);
+    }
+  }
+
+  Future<void> updateDocumentContent(
+    String documentId, {
+    required String field,
+    required String content,
+  }) async {
+    try {
+      await _dio.patch(
+        '/documents/$documentId/content',
+        data: {
+          'field': field,
+          'content': content,
+        },
+      );
     } on DioException catch (error) {
       final message = error.response?.data is Map<String, dynamic>
           ? (error.response?.data['error']?.toString() ?? error.message)

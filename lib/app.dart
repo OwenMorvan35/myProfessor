@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
 import 'core/theme.dart';
+import 'features/documents/ui/document_edit_page.dart';
 import 'features/documents/ui/document_page.dart';
 import 'features/folders/ui/folder_page.dart';
 import 'features/folders/ui/home_page.dart';
@@ -26,6 +27,11 @@ final _routerProvider = Provider<GoRouter>((ref) {
         path: '/document/:id',
         name: DocumentPage.routeName,
         builder: (context, state) => DocumentPage(documentId: state.pathParameters['id'] ?? ''),
+      ),
+      GoRoute(
+        path: '/document/:id/edit',
+        name: DocumentEditPage.routeName,
+        builder: (context, state) => DocumentEditPage(documentId: state.pathParameters['id'] ?? ''),
       ),
       GoRoute(
         path: '/recorder',

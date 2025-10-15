@@ -1,12 +1,14 @@
 package storage
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"mime"
 	"mime/multipart"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -18,6 +20,24 @@ type FileManager struct {
 	audioDir       string
 	pdfDir         string
 	maxUploadBytes int64
+}
+
+const (
+	ffmpegBinary     = "ffmpeg"
+	maxWhisperBytes  = 25 * 1024 * 1024
+	compressedSuffix = "_compressed"
+	compressedExt    = ".mp3"
+)
+
+var compressionProfiles = []struct {
+	bitrate    string
+	sampleRate string
+}{
+	{bitrate: "128k", sampleRate: "44100"},
+	{bitrate: "96k", sampleRate: "32000"},
+	{bitrate: "64k", sampleRate: "22050"},
+	{bitrate: "48k", sampleRate: "16000"},
+	{bitrate: "32k", sampleRate: "12000"},
 }
 
 var mimeExtensionFallback = map[string]string{
@@ -192,4 +212,79 @@ func fallbackExtension(contentType string) string {
 		return exts[0]
 	}
 	return ""
+}
+
+func (fm *FileManager) CompressAudio(inputPath string) (string, error) {
+	if inputPath == "" {
+		return "", fmt.Errorf("no audio path provided for compression")
+	}
+
+	if _, err := exec.LookPath(ffmpegBinary); err != nil {
+		return "", fmt.Errorf("ffmpeg not found in PATH: %w", err)
+	}
+
+	base := strings.TrimSuffix(filepath.Base(inputPath), filepath.Ext(inputPath))
+	output := filepath.Join(fm.audioDir, base+compressedSuffix+compressedExt)
+
+	if _, err := os.Stat(output); err == nil {
+		if err := fm.ensureWithinWhisperLimit(output); err != nil {
+			return "", err
+		}
+		return output, nil
+	}
+
+	var lastErr error
+	for idx, profile := range compressionProfiles {
+		if idx > 0 {
+			_ = os.Remove(output)
+		}
+
+		args := []string{
+			"-y",
+			"-i", inputPath,
+			"-vn",
+			"-ac", "1",
+			"-acodec", "libmp3lame",
+			"-b:a", profile.bitrate,
+		}
+		if profile.sampleRate != "" {
+			args = append(args, "-ar", profile.sampleRate)
+		}
+		args = append(args, output)
+
+		cmd := exec.Command(ffmpegBinary, args...)
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		if err := cmd.Run(); err != nil {
+			lastErr = fmt.Errorf("compress audio: %w: %s", err, strings.TrimSpace(stderr.String()))
+			continue
+		}
+
+		if err := fm.ensureWithinWhisperLimit(output); err != nil {
+			lastErr = err
+			_ = os.Remove(output)
+			continue
+		}
+
+		return output, nil
+	}
+
+	if lastErr != nil {
+		return "", lastErr
+	}
+	return "", fmt.Errorf("compressed audio still exceeds Whisper limit after applying fallback profiles")
+}
+
+func (fm *FileManager) ensureWithinWhisperLimit(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("stat compressed audio: %w", err)
+	}
+
+	if info.Size() > maxWhisperBytes {
+		return fmt.Errorf("compressed audio size %.2f MB exceeds Whisper limit of %.2f MB",
+			float64(info.Size())/1024.0/1024.0,
+			float64(maxWhisperBytes)/1024.0/1024.0)
+	}
+	return nil
 }

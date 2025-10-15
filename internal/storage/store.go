@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -167,6 +168,9 @@ func (s *Store) CreateDocument(doc domain.Document) (domain.Document, error) {
 	if doc.ID == "" {
 		doc.ID = uuid.NewString()
 	}
+	if doc.ProcessingStatus == "" {
+		doc.ProcessingStatus = domain.ProcessingStatusPending
+	}
 	now := time.Now().Unix()
 	if doc.CreatedAt == 0 {
 		doc.CreatedAt = now
@@ -223,6 +227,10 @@ func (s *Store) UpdateDocument(doc domain.Document) (domain.Document, error) {
 	if doc.FolderID != existing.FolderID {
 		s.detachDocumentFromFolder(existing.FolderID, doc.ID)
 		s.attachDocumentToFolder(doc.FolderID, doc.ID)
+	}
+
+	if doc.ProcessingStatus == "" {
+		doc.ProcessingStatus = existing.ProcessingStatus
 	}
 
 	doc.UpdatedAt = time.Now().Unix()
@@ -283,6 +291,17 @@ func (s *Store) ensureMaps() {
 	}
 	if s.data.Documents == nil {
 		s.data.Documents = map[string]domain.Document{}
+	}
+
+	for id, doc := range s.data.Documents {
+		if doc.ProcessingStatus == "" {
+			status := domain.ProcessingStatusPending
+			if strings.TrimSpace(doc.Transcription) != "" {
+				status = domain.ProcessingStatusCompleted
+			}
+			doc.ProcessingStatus = status
+			s.data.Documents[id] = doc
+		}
 	}
 }
 

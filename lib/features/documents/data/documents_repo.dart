@@ -5,7 +5,8 @@ import 'package:hive/hive.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
 import '../../../core/api.dart';
-import '../../../core/io/file_stub.dart' if (dart.library.io) '../../../core/io/file_io.dart';
+import '../../../core/io/file_stub.dart'
+    if (dart.library.io) '../../../core/io/file_io.dart';
 import '../../folders/data/folder.dart';
 import '../../folders/data/folders_repo.dart';
 import 'document.dart';
@@ -21,12 +22,14 @@ final documentsRepositoryProvider = Provider<DocumentsRepository>((ref) {
   return DocumentsRepository(api, documentsBox, foldersBox);
 });
 
-final documentsStreamProvider = StreamProvider.autoDispose.family<List<Document>, String>((ref, folderId) {
+final documentsStreamProvider =
+    StreamProvider.autoDispose.family<List<Document>, String>((ref, folderId) {
   final repo = ref.watch(documentsRepositoryProvider);
   return repo.watchDocuments(folderId);
 });
 
-final documentStreamProvider = StreamProvider.autoDispose.family<Document?, String>((ref, id) {
+final documentStreamProvider =
+    StreamProvider.autoDispose.family<Document?, String>((ref, id) {
   final repo = ref.watch(documentsRepositoryProvider);
   return repo.watchDocument(id);
 });
@@ -125,6 +128,14 @@ class DocumentsRepository {
     return doc;
   }
 
+  Future<Document> transcribeDocument(String documentId) async {
+    final data = await _api.transcribeDocument(documentId);
+    final doc = Document.fromJson(data);
+    _saveDocument(doc);
+    _updateFolderDocumentIds(doc.folderId);
+    return doc;
+  }
+
   Future<String> generatePdf(String documentId) async {
     final path = await _api.generatePdf(documentId);
     final doc = _documentsBox.get(documentId);
@@ -142,17 +153,34 @@ class DocumentsRepository {
     return _api.shareDocument(documentId);
   }
 
+  Future<void> updateCachedDocument(Document document) async {
+    final existing = _documentsBox.get(document.id);
+    final updated = document.copyWith(updatedAt: DateTime.now());
+    _documentsBox.put(updated.id, updated);
+
+    if (existing != null && existing.folderId != updated.folderId) {
+      _detachDocumentFromFolder(existing.folderId, existing.id);
+      _attachDocumentToFolder(updated);
+    }
+  }
+
   List<Document> _documentsForFolder(String folderId) {
-    final docs = _documentsBox.values.where((doc) => doc.folderId == folderId).toList(growable: false);
+    final docs = _documentsBox.values
+        .where((doc) => doc.folderId == folderId)
+        .toList(growable: false);
     docs.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
     return docs;
   }
 
   void _saveDocument(Document document) {
+    final normalizedStatus = document.processingStatus.isEmpty
+        ? (document.transcription.isNotEmpty ? 'completed' : 'pending')
+        : document.processingStatus;
     final updated = document.copyWith(
       updatedAt: document.updatedAt.millisecondsSinceEpoch == 0
           ? DateTime.now()
           : document.updatedAt,
+      processingStatus: normalizedStatus,
     );
     _documentsBox.put(updated.id, updated);
     _attachDocumentToFolder(updated);
